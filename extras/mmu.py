@@ -144,7 +144,7 @@ class DebugStepperMovement:
 
 # Main klipper module
 class Mmu:
-    VERSION = 2.72 # When this is revved, Happy Hare will instruct users to re-run ./install.sh. Sync with install.sh!
+    VERSION = 2.73 # When this is revved, Happy Hare will instruct users to re-run ./install.sh. Sync with install.sh!
 
     BOOT_DELAY = 2.5 # Delay before running bootup tasks
 
@@ -5282,7 +5282,11 @@ class Mmu:
                     if can_heat and self._check_filament_still_in_extruder():
                         self._set_filament_pos_state(self.FILAMENT_POS_IN_EXTRUDER, silent=silent)
                     else:
-                        self._set_filament_pos_state(self.FILAMENT_POS_IN_BOWDEN, silent=silent) # This prevents fast unload move
+                        es = self._check_sensor(self.ENDSTOP_EXTRUDER_ENTRY)
+                        if es is not None and es: # Installed and triggered
+                            self._set_filament_pos_state(self.FILAMENT_POS_HOMED_ENTRY, silent=silent)
+                        else:
+                            self._set_filament_pos_state(self.FILAMENT_POS_IN_BOWDEN, silent=silent) # This prevents fast unload move
                 else:
                     self._set_filament_pos_state(self.FILAMENT_POS_UNLOADED, silent=silent)
             elif ts: # Filament detected in toolhead
@@ -5293,9 +5297,18 @@ class Mmu:
                         if can_heat and self._check_filament_still_in_extruder():
                             self._set_filament_pos_state(self.FILAMENT_POS_EXTRUDER_ENTRY, silent=silent)
                         else:
-                            self._set_filament_pos_state(self.FILAMENT_POS_IN_BOWDEN, silent=silent)
+                            es = self._check_sensor(self.ENDSTOP_EXTRUDER_ENTRY)
+                            if es is not None and es: # Installed and triggered
+                                self._set_filament_pos_state(self.FILAMENT_POS_HOMED_ENTRY, silent=silent)
+                            else:
+                                self._set_filament_pos_state(self.FILAMENT_POS_IN_BOWDEN, silent=silent) # Slight risk of it still being gripped by extruder
+                                
                     else:
-                        self._set_filament_pos_state(self.FILAMENT_POS_IN_BOWDEN, silent=silent) # Slight risk of it still being gripped by extruder
+                        es = self._check_sensor(self.ENDSTOP_EXTRUDER_ENTRY)
+                        if es is not None and es: # Installed and triggered
+                            self._set_filament_pos_state(self.FILAMENT_POS_HOMED_ENTRY, silent=silent)
+                        else:
+                            self._set_filament_pos_state(self.FILAMENT_POS_IN_BOWDEN, silent=silent) # Slight risk of it still being gripped by extruder
                 else:
                     self._set_filament_pos_state(self.FILAMENT_POS_UNLOADED, silent=silent)
 
@@ -7548,11 +7561,11 @@ class Mmu:
             do_runout = gcmd.get_int('DO_RUNOUT', 0)
 
             if gate is not None:
-                # Ignore pre-gate runout if endless_spool_eject_gate feature is active
-                if self.enable_endless_spool and self.endless_spool_eject_gate > 0:
+                # Ignore pre-gate runout if endless_spool_eject_gate feature is active and we want filament to be consumed to clear gate
+                if not(self.enable_endless_spool and self.endless_spool_eject_gate > 0):
+                    self._set_gate_status(gate, self.GATE_EMPTY)
+                else:
                     self.log_trace("Ignoring pre-gate sensor runout on gate %d because endless_spool_eject_gate is active" % gate)
-                    return
-                self._set_gate_status(gate, self.GATE_EMPTY)
 
             if do_runout:
                 if self._is_in_print() and (gate is None or gate == self.gate_selected):

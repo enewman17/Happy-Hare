@@ -179,9 +179,9 @@ class Mmu:
     VARS_MMU_ENCODER_RESOLUTION       = "mmu_encoder_resolution"
     VARS_MMU_GEAR_ROTATION_DISTANCES  = "mmu_gear_rotation_distances"
 
-    VARS_MMU_CALIB_BOWDEN_LENGTH      = "mmu_calibration_bowden_length" # Deprecated (for upgrade only)
-    VARS_MMU_GEAR_ROTATION_DISTANCE   = "mmu_gear_rotation_distance"    # Deprecated (for upgrade only)
-    VARS_MMU_CALIB_PREFIX             = "mmu_calibration_"              # Deprecated (for upgrade only)
+    VARS_MMU_CALIB_BOWDEN_LENGTH      = "mmu_calibration_bowden_length" # DEPRECATED (for upgrade only)
+    VARS_MMU_GEAR_ROTATION_DISTANCE   = "mmu_gear_rotation_distance"    # DEPRECATED (for upgrade only)
+    VARS_MMU_CALIB_PREFIX             = "mmu_calibration_"              # DEPRECATED (for upgrade only)
 
     # Mainsail/Fluid visualization of extruder colors and other attributes
     T_MACRO_COLOR_ALLGATES = 'allgates' # Color from gate map (all tools). Will add spool_id if spoolman is enabled
@@ -1174,7 +1174,7 @@ class Mmu:
         # Auto upgrade old names
         key_map = {"time_spent_loading": "load", "time_spent_unloading": "unload", "time_spent_paused": "pause"}
         swap_stats = {key_map.get(key, key): swap_stats[key] for key in swap_stats}
-        swap_stats.pop('servo_retries', None) # Deprecated
+        swap_stats.pop('servo_retries', None) # DEPRECATED
 
         self.statistics.update(swap_stats)
         for gate in range(self.num_gates):
@@ -1334,10 +1334,12 @@ class Mmu:
             'enabled': self.is_enabled,
              # TODO Should rest of this section be in a conditional if self.is_enabled: block for performance?
             'num_gates': self.num_gates,
-            'is_paused': self.is_mmu_paused(),
-            'is_locked': self.is_mmu_paused(), # Alias for is_paused (deprecated)
             'is_homed': self.selector.is_homed,
-            'is_in_print': self.is_in_print(),
+            'is_locked': self.is_mmu_paused(), # DEPRECATED (alias for is_paused)
+            'is_paused': self.is_mmu_paused(), # DEPRECATED (use print_state)
+            'is_in_print': self.is_in_print(), # DEPRECATED (use print_state)
+            'print_state': self.print_state,
+            'unit': self.unit_selected,
             'tool': self.tool_selected,
             'gate': self._next_gate if self._next_gate is not None else self.gate_selected,
             'active_filament': self.active_filament,
@@ -1345,7 +1347,7 @@ class Mmu:
             'next_tool': self._next_tool,
             'toolchange_purge_volume': self.toolchange_purge_volume,
             'last_toolchange': self._last_toolchange,
-            'runout': self.is_handling_runout, # Deprecated (use operation)
+            'runout': self.is_handling_runout, # DEPRECATED (use operation)
             'operation': self.saved_toolhead_operation,
             'filament': "Loaded" if self.filament_pos == self.FILAMENT_POS_LOADED else
                         "Unloaded" if self.filament_pos == self.FILAMENT_POS_UNLOADED else
@@ -1372,16 +1374,16 @@ class Mmu:
             'sync_drive': self.mmu_toolhead.is_synced(),
             'sync_feedback_state': self._get_sync_feedback_string(),
             'sync_feedback_enabled': bool(self.sync_feedback_enable),
-            'print_state': self.print_state,
-            'clog_detection': self.enable_clog_detection, # TODO: Rename clog_detection_enabled
-            'endless_spool': self.enable_endless_spool, # TODO: Rename endless_spool_enabled
+            'clog_detection': self.enable_clog_detection, # DEPRECATED use clog_detection_enabled
+            'clog_detection_enabled': self.enable_clog_detection,
+            'endless_spool': self.enable_endless_spool,   # DEPRECATED use endless_spool_enabled
+            'endless_spool_enabled': self.enable_endless_spool,
             'print_start_detection': self.print_start_detection, # For Klippain. Not really sure it is necessary
             'reason_for_pause': self.reason_for_pause if self.is_mmu_paused() else "",
             'extruder_filament_remaining': self.filament_remaining + self.toolhead_residual_filament,
             'spoolman_support': self.spoolman_support,
             'enable_spoolman': int(not self.spoolman_support == self.SPOOLMAN_OFF), # Legacy
-            'selector_type': self.mmu_machine.selector_type,
-            'bowden_progress': self._get_bowden_progress(),
+            'bowden_progress': self._get_bowden_progress(), # Simple 0-100%. -1 if not performing bowden move
             'espooler_active': 'rewind' if self.espooler_active else '' # 'assist' not supported yet
         }
         status.update(self.selector.get_status())
@@ -2029,7 +2031,7 @@ class Mmu:
             msg += "\n- Runout detection: %s" % ("Enabled" if status['enabled'] else "Disabled")
             clog = "Automatic" if status['detection_mode'] == 2 else "On" if status['detection_mode'] == 1 else "Off"
             msg += "\n- Clog/Runout mode: %s (Detection length: %.1f)" % (clog, status['detection_length'])
-            msg += "\n- Trigger headroom: %.1f (Minimum observed: %.1f)" % (status['headroom'], status['min_headroom'])
+            msg += "\n- Remaining headroom before trigger: %.1f (min: %.1f)" % (status['headroom'], status['min_headroom'])
             msg += "\n- Flowrate: %d %%" % status['flow_rate']
         return msg
 
@@ -2098,7 +2100,7 @@ class Mmu:
         if self.check_if_not_homed(): return
         if self.check_if_always_synced(): return
         grip = gcmd.get_int('GRIP', 1, minval=0, maxval=1)
-        servo = gcmd.get_int('SERVO', 1, minval=0, maxval=1) # Deprecated (use GRIP=0 instead)
+        servo = gcmd.get_int('SERVO', 1, minval=0, maxval=1) # DEPRECATED (use GRIP=0 instead)
         sync = gcmd.get_int('SYNC', 1, minval=0, maxval=1)
         self.sync_gear_to_extruder(sync, grip=(grip and servo), current=True)
 
@@ -3110,7 +3112,8 @@ class Mmu:
             self._ensure_safe_extruder_temperature("pause", wait=True)
             self.paused_extruder_temp = None
             self._track_pause_end()
-            self._enable_runout() # Enable runout/clog detection while printing
+            if self.is_in_print(force_in_print):
+                self._enable_runout() # Enable runout/clog detection while printing
             self._set_print_state(self.resume_to_state)
             self.resume_to_state = "ready"
             self.printer.send_event("mmu:mmu_resumed")
@@ -3235,6 +3238,7 @@ class Mmu:
     def _disable_runout(self):
         enabled = self.runout_enabled
         if enabled:
+            logging.info("PAUL: Disabled runout detection")
             self.log_trace("Disabled runout detection")
             if self.has_encoder() and self.encoder_sensor.is_enabled():
                 self.encoder_sensor.disable()
@@ -3244,6 +3248,7 @@ class Mmu:
 
     def _enable_runout(self):
         self.runout_enabled = True
+        logging.info("PAUL: Enabled runout detection")
         self.log_trace("Enabled runout detection")
         if self.has_encoder() and not self.encoder_sensor.is_enabled():
             self.encoder_sensor.enable()
@@ -4124,7 +4129,7 @@ class Mmu:
 
     # Shared with manual bowden calibration routine
     def _reverse_home_to_encoder(self, homing_max):
-        max_steps = math.ceil(homing_max / self.encoder_move_step_size)
+        max_steps = int(math.ceil(homing_max / self.encoder_move_step_size))
         delta = 0.
         actual = 0.
         for i in range(max_steps):
@@ -4710,6 +4715,9 @@ class Mmu:
             if full and not extruder_only and not self.gcode_load_sequence:
                 self._autotune(self.DIRECTION_LOAD, bowden_move_ratio, homing_movement)
 
+            # Activate loaded spool in Spoolman
+            self._spoolman_activate_spool(self.gate_spool_id[self.gate_selected])
+            
             # POST_LOAD user defined macro
             if macros_and_track:
                 with self._wrap_track_time('post_load'):
@@ -4861,6 +4869,9 @@ class Mmu:
             if full and not extruder_only and not self.gcode_unload_sequence:
                 self._autotune(self.DIRECTION_UNLOAD, bowden_move_ratio, homing_movement)
 
+            # Deactivate spool in Spoolman as it is now unloaded.
+            self._spoolman_activate_spool(0)
+            
             # POST_UNLOAD user defined macro
             if macros_and_track:
                 with self._wrap_track_time('post_unload'):
@@ -5635,7 +5646,6 @@ class Mmu:
                 raise MmuError("Gate %d is empty (and EndlessSpool on load is disabled)\nLoad gate, remap tool to another gate or correct state with 'MMU_CHECK_GATE GATE=%d' or 'MMU_GATE_MAP GATE=%d AVAILABLE=1'" % (gate, gate, gate))
 
         self.load_sequence()
-        self._spoolman_activate_spool(self.gate_spool_id[gate]) # Activate in Spoolman
         self._restore_tool_override(self.tool_selected) # Restore M220 and M221 overrides
 
     # Primary method to unload current tool but retain selection
@@ -5648,7 +5658,6 @@ class Mmu:
         self._set_last_tool(self.tool_selected)
         self._record_tool_override() # Remember M220 and M221 overrides
         self.unload_sequence(form_tip=form_tip, runout=runout)
-        self._spoolman_activate_spool(0) # Deactivate in SpoolMan
 
     def _auto_home(self, tool=0):
         if not self.selector.is_homed or self.tool_selected == self.TOOL_GATE_UNKNOWN:
@@ -7154,7 +7163,7 @@ class Mmu:
         self._persist_endless_spool()
 
     def _set_gate_status(self, gate, state):
-        if gate >= 0:
+        if 0 <= gate < self.num_gates:
             if state != self.gate_status[gate]:
                 self.gate_status = list(self.gate_status) # Ensure that webhooks sees get_status() change
                 self.gate_status[gate] = state

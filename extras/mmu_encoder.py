@@ -84,6 +84,7 @@ class MmuEncoder:
             self.extruder = self.printer.lookup_object(self.extruder_name)
         except Exception:
             pass # Can set this later
+        self.last_extruder_pos = 0.
         self.filament_runout_pos = self.min_headroom = self.detection_length
 
     def _handle_ready(self):
@@ -249,7 +250,6 @@ class MmuEncoder:
         self._enabled = True
 
     def disable(self):
-        self.last_extruder_pos = self.filament_runout_pos = 0.
         self._enabled = False
 
     def is_enabled(self):

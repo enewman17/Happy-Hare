@@ -10,7 +10,7 @@
 #               2024  Unsweeticetea <iamzevle@gmail.com>
 #               2024  Dmitry Kychanov <k1-801@mail.ru>
 #
-VERSION=3.1 # Important: Keep synced with mmy.py
+VERSION=3.1 # Important: Keep synced with mmu.py
 
 F_VERSION=$(echo "$VERSION" | sed 's/\([0-9]\+\)\.\([0-9]\)\([0-9]\)/\1.\2.\3/')
 SCRIPT="$(readlink -f "$0")"
@@ -668,12 +668,9 @@ upgrade_mmu_hardware() {
         # Note params will be comming from mmu_parameters
         new_section=$(cat <<EOF
 # MMU MACHINE / TYPE ---------------------------------------------------------------------------------------------------
-# ███╗   ███╗███╗   ███╗██╗   ██╗    ███╗   ███╗ █████╗  ██████╗██╗  ██╗██╗███╗   ██╗███████╗
-# ████╗ ████║████╗ ████║██║   ██║    ████╗ ████║██╔══██╗██╔════╝██║  ██║██║████╗  ██║██╔════╝
-# ██╔████╔██║██╔████╔██║██║   ██║    ██╔████╔██║███████║██║     ███████║██║██╔██╗ ██║█████╗  
-# ██║╚██╔╝██║██║╚██╔╝██║██║   ██║    ██║╚██╔╝██║██╔══██║██║     ██╔══██║██║██║╚██╗██║██╔══╝  
-# ██║ ╚═╝ ██║██║ ╚═╝ ██║╚██████╔╝    ██║ ╚═╝ ██║██║  ██║╚██████╗██║  ██║██║██║ ╚████║███████╗
-# ╚═╝     ╚═╝╚═╝     ╚═╝ ╚═════╝     ╚═╝     ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝╚══════╝
+#############################################################################
+# MMU MACHINE 
+#############################################################################
 [mmu_machine]
 num_gates: ${_param_mmu_num_gates}				# Number of selectable gates on MMU
 mmu_vendor: ${_param_mmu_vendor}			# MMU family
@@ -979,6 +976,12 @@ copy_config_files() {
     else
         cp ${src} ${dest}
     fi
+
+    src=${SRCDIR}/config/mmu_helper_macros.cfg
+    dest=${mmu_dir}/base/mmu_helper_macros.cfg
+    cp ${src} ${dest}
+
+    mmu_helper_macros.cfg
 
     # Addon config files are always copied (and updated) so they can be edited ----------------
     # Skipping files with 'my_' prefix for development

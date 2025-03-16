@@ -853,9 +853,9 @@ class Mmu:
         # TODO: A little bit hacky until a more universal approach is implemented
         sequence_vars_macro = self.printer.lookup_object("gcode_macro _MMU_SEQUENCE_VARS", None)
         if sequence_vars_macro:
-            self.has_blobifier = 'blob' in sequence_vars_macro.variables.get('user_post_load_extension', '').lower() # E.g. "BLOBIFIER"
-            self.has_mmu_cutter = 'cut' in sequence_vars_macro.variables.get('user_post_unload_extension', '').lower() # E.g "EREC_CUTTER_ACTION"
-        self.has_toolhead_cutter = 'cut' in self.form_tip_macro.lower() # E.g. "_MMU_CUT_TIP"
+            self.has_blobifier = sequence_vars_macro.variables.get('user_post_load_extension', '') == "BLOBIFIER"
+            self.has_mmu_cutter = sequence_vars_macro.variables.get('user_post_unload_extension', '') == "EREC_CUTTER_ACTION"
+            self.has_toolhead_cutter = self.form_tip_macro == '_MMU_CUT_TIP' # E.g. "_MMU_CUT_TIP"
 
         # Sub components
         self.selector.handle_connect()

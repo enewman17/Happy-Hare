@@ -4553,18 +4553,21 @@ class Mmu:
                         length -= self.encoder_move_step_size
                         self._set_filament_pos_state(self.FILAMENT_POS_IN_BOWDEN)
 
-                # "Fast" unload
-                ratio = 0.
-                if self.sensor_manager.check_all_sensors_before(self.FILAMENT_POS_START_BOWDEN, self.gate_selected, loading=False) is not False:
-                    _,_,_,delta = self.trace_filament_move("Fast unloading move through bowden", -length, track=True, encoder_dwell=bool(self.autotune_rotation_distance))
-                    delta -= self._get_encoder_dead_space()
-                    ratio = (length - delta) / length
+                # Sensor validation
+                if self.sensor_manager.check_all_sensors_before(self.FILAMENT_POS_START_BOWDEN, self.gate_selected, loading=False) is False:
+                    sensors = self.sensor_manager.get_all_sensors()
+                    self.log_error("Warning: Possible sensor malfunction - a sensor indicated filament not present before unloading bowden: %s\nWill attempt to continue..." % sensors)
 
-                    # Encoder based validation test
-                    if self._can_use_encoder() and delta >= self.bowden_allowable_unload_delta and not self.calibrating:
-                        ratio = 0.
-                        # Only a warning because _unload_gate() will deal with it
-                        self.log_info("Warning: Excess slippage was detected in bowden tube unload. Gear moved %.1fmm, Encoder measured %.1fmm" % (length, length - delta))
+                # "Fast" unload
+                _,_,_,delta = self.trace_filament_move("Fast unloading move through bowden", -length, track=True, encoder_dwell=bool(self.autotune_rotation_distance))
+                delta -= self._get_encoder_dead_space()
+                ratio = (length - delta) / length
+
+                # Encoder based validation test
+                if self._can_use_encoder() and delta >= self.bowden_allowable_unload_delta and not self.calibrating:
+                    ratio = 0.
+                    # Only a warning because _unload_gate() will deal with it
+                    self.log_info("Warning: Excess slippage was detected in bowden tube unload. Gear moved %.1fmm, Encoder measured %.1fmm" % (length, length - delta))
 
                 self._random_failure() # Testing
                 self.movequeues_wait()
@@ -5759,7 +5762,10 @@ class Mmu:
     # into Happy Hare during a print. It also ensures that grip (e.g. servo) and current are correctly restored
     @contextlib.contextmanager
     def wrap_sync_gear_to_extruder(self):
-        self._standalone_sync = prev_sync = self.mmu_machine.filament_always_gripped or self.mmu_toolhead.sync_mode == MmuToolHead.GEAR_SYNCED_TO_EXTRUDER
+        # TODO vvv I think this was added for PicoMMU but is not correct for other type-A's. Validate current logic with PicoMMU...
+        #self._standalone_sync = prev_sync = self.mmu_machine.filament_always_gripped or self.mmu_toolhead.sync_mode == MmuToolHead.GEAR_SYNCED_TO_EXTRUDER
+        # TODO ^^^
+        prev_sync = self.mmu_machine.filament_always_gripped or self.mmu_toolhead.sync_mode == MmuToolHead.GEAR_SYNCED_TO_EXTRUDER
         prev_current = self.gear_percentage_run_current != 100
         prev_grip = self.selector.get_filament_grip_state()
 
@@ -6530,6 +6536,7 @@ class Mmu:
                         # Ok, now ready to park and perform the swap
                         self._next_tool = tool # Valid only during the change process
                         self._save_toolhead_position_and_park('toolchange', next_pos=next_pos)
+                        self._set_next_position(next_pos) # This can also clear next_position
                         self._track_time_start('total')
                         self.printer.send_event("mmu:toolchange", self._last_tool, self._next_tool)
 
@@ -6539,7 +6546,6 @@ class Mmu:
                                 try:
                                     if self.filament_pos != self.FILAMENT_POS_UNLOADED:
                                         self._unload_tool(form_tip=do_form_tip)
-                                    self._set_next_position(next_pos)
                                     self._select_and_load_tool(tool, purge=do_purge)
                                     break
                                 except MmuError as ee:
@@ -7704,6 +7710,8 @@ class Mmu:
                     # When matching by name normalize possible unicode characters and match case-insensitive
                     if strategy == self.AUTOMAP_FILAMENT_NAME:
                         equal = self._compare_unicode(tool_to_remap[tool_field], gate_feature)
+                    elif strategy == self.AUTOMAP_COLOR:
+                        equal = tool_to_remap[tool_field].ljust(8,'F') == gate_feature.ljust(8,'F')
                     else:
                         equal = tool_to_remap[tool_field] == gate_feature
                     if equal:

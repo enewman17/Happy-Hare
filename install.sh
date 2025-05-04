@@ -331,8 +331,7 @@ parse_file() {
     file="$1"
     prefix_filter="$2"
     namespace="$3"
-    checkdup="$4"
-    checkdup=""
+    merge="$4"
 
     if [ ! -f "${file}" ]; then
         return
@@ -361,9 +360,14 @@ parse_file() {
             if echo "$parameter" | grep -E -q "${prefix_filter}"; then
                 if [ "${value}" != "" ]; then
                     combined="${namespace}${parameter}"
-                    if [ -n "${checkdup}" ] && [ ! -z "${!combined+x}" ]; then
-                        echo -e "${ERROR}${parameter} defined multiple times!"
+                    if [ ! -z "${!combined+x}" ]; then
+                        if [ "${merge}" == "merge" ]; then
+                            continue # Use existing value
+                        elif [ "${merge}" == "checkdup" ]; then
+                            echo -e "${ERROR}${parameter} defined multiple times!"
+                        fi
                     fi
+                    # Set/overwrite value in memory
                     if echo "$value" | grep -q '^{.*}$'; then
                         eval "${combined}=\$${value}"
                     elif [ "${value%"${value#?}"}" = "'" ]; then
@@ -452,7 +456,7 @@ read_previous_mmu_type() {
     HAS_SELECTOR="yes"
     dest_cfg="${KLIPPER_CONFIG_HOME}/mmu/base/mmu_hardware.cfg"
     if [ -f "${dest_cfg}" ]; then
-        if ! grep -q "^\[stepper_mmu_selector\]" "${dest_cfg}"; then
+        if ! grep -q "^\[stepper_mmu_selector.*\]" "${dest_cfg}"; then
             HAS_SELECTOR="no"
         fi
     fi
@@ -470,6 +474,13 @@ read_previous_mmu_type() {
             HAS_ENCODER="no"
         fi
     fi
+    HAS_ESPOOLER="yes"
+    dest_cfg="${KLIPPER_CONFIG_HOME}/mmu/base/mmu_hardware.cfg"
+    if [ -f "${dest_cfg}" ]; then
+        if ! grep -q "^\[mmu_espooler mmu_espooler\]" "${dest_cfg}"; then
+            HAS_ESPOOLER="no"
+        fi
+    fi
 
     # Figure out the selector type based on h/w presence
     if [ "$HAS_SELECTOR" == "no" -a "$HAS_SERVO" == "no" ]; then
@@ -481,24 +492,36 @@ read_previous_mmu_type() {
     else
         _hw_selector_type='LinearSelector'
     fi
+    echo -e "${INFO}HAS_SELECTOR=${HAS_SELECTOR}"
+    echo -e "${INFO}HAS_SERVO=${HAS_SERVO}"
+    echo -e "${INFO}HAS_ENCODER=${HAS_ENCODER}"
+    echo -e "${INFO}HAS_ESPOOLER=${HAS_ESPOOLER}"
+    echo -e "${INFO}Determined you have a ${_hw_selector_type}"
 }
 
 # Set default parameters from the distribution (reference) config files
 read_default_config() {
-    echo -e "${INFO}Reading default configuration parameters..."
+    if [ "$1" == "merge" ]; then
+        echo -e "${INFO}Merging default configuration parameters..."
+        merge="merge"
+    else
+        echo -e "${INFO}Reading default configuration parameters..."
+        merge="checkdup"
+    fi
+
     if [ "$HAS_SELECTOR" == "no" -a "$HAS_SERVO" == "no" ]; then
-        parse_file "${SRCDIR}/config/base/mmu_parameters.cfg.vs" ""            "_param_" "checkdup"
+        parse_file "${SRCDIR}/config/base/mmu_parameters.cfg.vs" ""            "_param_" "$merge"
     elif [ "$HAS_SELECTOR" == "no" -a "$HAS_SERVO" == "yes" ]; then
-        parse_file "${SRCDIR}/config/base/mmu_parameters.cfg.ss" ""            "_param_" "checkdup"
+        parse_file "${SRCDIR}/config/base/mmu_parameters.cfg.ss" ""            "_param_" "$merge"
     elif [ "$HAS_SELECTOR" == "yes" -a "$HAS_SERVO" == "no" ]; then
-        parse_file "${SRCDIR}/config/base/mmu_parameters.cfg.rs" ""            "_param_" "checkdup"
+        parse_file "${SRCDIR}/config/base/mmu_parameters.cfg.rs" ""            "_param_" "$merge"
     else
         # All other selector types
         parse_file "${SRCDIR}/config/base/mmu_parameters.cfg" ""               "_param_" "checkdup"
     fi
-    parse_file "${SRCDIR}/config/base/mmu_macro_vars.cfg" "variable_|filename" ""        "checkdup"
+    parse_file "${SRCDIR}/config/base/mmu_macro_vars.cfg" "variable_|filename" ""        "$merge"
     for file in `cd ${SRCDIR}/config/addons ; ls *.cfg | grep -v "_hw" | grep -v "my_"`; do
-        parse_file "${SRCDIR}/config/addons/${file}"      "variable_"          ""        "checkdup"
+        parse_file "${SRCDIR}/config/addons/${file}"      "variable_"          ""        "$merge"
     done
 }
 
@@ -682,7 +705,15 @@ check_for_999() {
 }
 
 convert_neg_one() {
-    echo "$1" | sed -E 's/^(-1,)/-999,/; s/^(.*?,) *(-1,)/\1 -999,/'
+    echo "$1" | awk -F',' '
+    {
+        if ($1 ~ /^ *-1 *$/) $1 = " -999";
+        if ($2 ~ /^ *-1 *$/) $2 = " -999";
+        OFS=","
+        for (i=1; i<=NF; i++) {
+            printf "%s%s", $i, (i<NF ? OFS : ORS)
+        }
+    }'
 }
 
 convert_to_boolean_string() {
@@ -882,11 +913,11 @@ copy_config_files() {
     done
 
     # Find all variables in the form of PIN[$_hw_brd_type,*]
-    if [ "$HAS_SELECTOR" == "yes" ]; then
-        key_match="$_hw_brd_type"
-    else
+    if [ "$_hw_selector_type" == "VirtualSelector" ]; then
         # Type-B MMU has alternative pin allocation
         key_match="B,$_hw_brd_type"
+    else
+        key_match="$_hw_brd_type"
     fi
     for key in "${!PIN[@]}"; do
         if [[ $key == "$key_match"* ]]; then
@@ -971,15 +1002,23 @@ copy_config_files() {
                 #sed "/^# ENCODER/,+24 d" ${dest} > ${dest}.tmp && mv ${dest}.tmp ${dest}
             fi
 
+            # Handle Espooler option - Comment out if not fitted so can easily be added later
+            if [ "${file}" == "mmu_hardware.cfg" -a "$HAS_ESPOOLER" == "no" ]; then
+                sed "/^\[mmu_espooler mmu_espooler\]/,+27 {/^[^#]/ s/^/#/}" ${dest} > ${dest}.tmp && mv ${dest}.tmp ${dest}
+                #sed "/^# ESPOOLER/,+41 d" ${dest} > ${dest}.tmp && mv ${dest}.tmp ${dest}
+            fi
+
             # Handle Selector options - Delete if not required (sections are 8 and 38 lines respectively)
             if [ "${file}" == "mmu_hardware.cfg" ]; then
                 if [ "$HAS_SELECTOR" == "no" ]; then
                     sed "/^# SELECTOR STEPPER/,+37 d" ${dest} > ${dest}.tmp && mv ${dest}.tmp ${dest}
+                fi
 
-                    if [ "$HAS_SERVO" == "no" ]; then
-                        sed "/^# SELECTOR SERVO/,+7 d" ${dest} > ${dest}.tmp && mv ${dest}.tmp ${dest}
-                    fi
+                if [ "$HAS_SERVO" == "no" ]; then
+                    sed "/^# SELECTOR SERVO/,+7 d" ${dest} > ${dest}.tmp && mv ${dest}.tmp ${dest}
+                fi
 
+                if [ "$_hw_selector_type" == "VirtualSelector" ]; then
                     # Expand out the additional filament drive for each gate
                     additional_gear_section=$(sed -n "/^# ADDITIONAL FILAMENT DRIVE/,+10 p" ${dest} | sed "1,3d")
                     awk '{ print } /^# ADDITIONAL FILAMENT DRIVE/ { for (i=1; i<=11; i++) { getline; print }; exit }' ${dest} > ${dest}.tmp
@@ -996,10 +1035,6 @@ copy_config_files() {
                         cat ${dest} | sed -e "s/^uart_pin: mmu:MMU_GEAR_UART_3/uart_pin: mmu:MMU_GEAR_UART\nuart_address: 3/" > ${dest}.tmp && mv ${dest}.tmp ${dest}
                     fi
                 else
-                    if [ "$HAS_SERVO" == "no" ]; then
-                        sed "/^# SELECTOR SERVO/,+7 d" ${dest} > ${dest}.tmp && mv ${dest}.tmp ${dest}
-                    fi
-
                     # Delete additional gear drivers template section
                     sed "/^# ADDITIONAL FILAMENT DRIVE/,+10 d" ${dest} > ${dest}.tmp && mv ${dest}.tmp ${dest}
                 fi
@@ -1119,6 +1154,16 @@ copy_config_files() {
         fi
     done
 }
+
+remove_old_config_files() {
+    mmu_dir="${KLIPPER_CONFIG_HOME}/mmu"
+    if [ -f "${mmu_dir}/addons/dc_espooler.cfg" ]; then
+        echo -e "${WARNING}Removing legacy dc_spooler macros - configuration now in mmu_hardware.cfg"
+        rm -f "${mmu_dir}/addons/dc_espooler.cfg"
+        rm -f "${mmu_dir}/addons/dc_espooler_hw.cfg"
+    fi
+}
+
 
 uninstall_config_files() {
     if [ -d "${KLIPPER_CONFIG_HOME}/mmu" ]; then
@@ -1392,6 +1437,8 @@ questionaire() {
     _hw_color_order="GRBW"
     _hw_has_bypass=0
 
+    HAS_ESPOOLER=no
+
     echo
     echo -e "${INFO}Let me see if I can get you started with initial configuration"
     echo -e "You will still have some manual editing to perform but I will explain that later"
@@ -1584,6 +1631,7 @@ questionaire() {
             HAS_ENCODER=no
             HAS_SELECTOR=no
             HAS_SERVO=no
+            HAS_ESPOOLER=yes
             _hw_mmu_vendor="BoxTurtle"
             _hw_mmu_version="1.0"
             _hw_selector_type=VirtualSelector
@@ -1629,17 +1677,19 @@ questionaire() {
             ;;
 
         "$HTLF")
-            # Comming soon...
+            # Comming soon (j/k)...
             HAS_ENCODER=no
             HAS_SELECTOR=no
             HAS_SERVO=yes
             ;;
+
         "$_3MS")
             HAS_ENCODER=no
             HAS_SELECTOR=no
             HAS_SERVO=no
             HELP_URL="https://github.com/moggieuk/Happy-Hare/wiki/Quick-Start-3MS"
             HELP_URL_B="https://3dcoded.github.io/3MS/instructions/"
+
             _hw_mmu_vendor="3MS"
             _hw_mmu_version="1.0"
             _hw_selector_type=VirtualSelector
@@ -1650,6 +1700,7 @@ questionaire() {
             _hw_gear_gear_ratio="1:1"
             _hw_gear_run_current=0.7
             _hw_gear_hold_current=0.1
+
             _param_extruder_homing_endstop="extruder"
             _param_gate_homing_endstop="extruder"
             _param_gate_homing_max=500
@@ -1662,6 +1713,7 @@ questionaire() {
             HAS_SELECTOR=yes
             HAS_SERVO=no
             SETUP_SELECTOR_TOUCH=no
+
             _hw_mmu_vendor="3DChameleon"
             _hw_mmu_version="1.0"
             _hw_selector_type=RotarySelector
@@ -1674,6 +1726,7 @@ questionaire() {
             _hw_gear_hold_current=0.1
             _hw_sel_run_current=0.63
             _hw_sel_hold_current=0.2
+
             _param_extruder_homing_endstop="none"
             _param_gate_homing_endstop="mmu_gate"
             _param_gate_homing_max=500
@@ -1686,6 +1739,7 @@ questionaire() {
             HAS_SELECTOR=no
             HAS_SERVO=yes
             SETUP_SELECTOR_TOUCH=no
+
             _hw_mmu_vendor="PicoMMU"
             _hw_mmu_version="1.0"
             _hw_selector_type=ServoSelector
@@ -1701,6 +1755,7 @@ questionaire() {
             _hw_entry_leds=""
             _hw_status_leds=""
             _hw_logo_leds=""
+
             _param_extruder_homing_endstop="none"
             _param_gate_homing_endstop="mmu_gate"
             _param_gate_homing_max=100
@@ -1794,6 +1849,7 @@ questionaire() {
             HAS_SELECTOR=no
             HAS_SERVO=yes
             SETUP_SELECTOR_TOUCH=no
+
             _hw_mmu_vendor="MMX"
             _hw_mmu_version="1.0"
             _hw_selector_type=ServoSelector
@@ -1809,6 +1865,7 @@ questionaire() {
             _hw_entry_leds=""
             _hw_status_leds=""
             _hw_logo_leds=""
+
             _param_extruder_homing_endstop="none"
             _param_gate_homing_endstop="mmu_gate"
             _param_gate_homing_max=1000
@@ -1833,8 +1890,10 @@ questionaire() {
             HAS_ENCODER=yes
             HAS_SELECTOR=yes
             HAS_SERVO=yes
+            HAS_ESPOOLER=yes
             SETUP_LED=yes
             SETUP_SELECTOR_TOUCH=no
+
             _hw_mmu_vendor="Other"
             _hw_mmu_version="1.0"
             _hw_selector_type=LinearSelector
@@ -1919,6 +1978,7 @@ questionaire() {
                     HAS_SELECTOR=no
                     HAS_SERVO=no
                     HAS_ENCODER=no
+                    HAS_ESPOOLER=yes
                     _hw_selector_type=VirtualSelector
                     _hw_variable_bowden_lengths=1
                     _hw_variable_rotation_distances=1
@@ -1952,7 +2012,8 @@ questionaire() {
     option MELLOW_BRD_1         'Mellow EASY-BRD v1.x (with CANbus)'
     option MELLOW_BRD_2         'Mellow EASY-BRD v2.x (with CANbus)'
     option AFC_LITE_1           'AFC Lite v1.0'
-    option SKR_PICO_1 'BTT SKR Pico v1.0'
+    option SKR_PICO_1           'BTT SKR Pico v1.0'
+    option EBB42_12             'BTT EBB 42 CANbus v1.2 (for MMX or Pico)'
     option OTHER                'Not in list / Unknown'
     prompt_option opt 'MCU Type' "${OPTIONS[@]}"
     case $opt in
@@ -1999,6 +2060,10 @@ questionaire() {
         "$SKR_PICO_1")
             _hw_brd_type="SKR_PICO_1"
             pattern="Klipper_rp2040"
+            ;;
+        "$EBB42_12")
+            _hw_brd_type="EBB42_12"
+            pattern="Klipper_"
             ;;
         *)
             _hw_brd_type="unknown"
@@ -2172,7 +2237,7 @@ questionaire() {
                     ;;
             esac
 
-        elif [ "${_hw_mmu_vendor}" == "PicoMMU" ]; then
+        elif [ "${_hw_mmu_vendor}" == "PicoMMU" -o "${_hw_mmu_vendor}" == "MMX" ]; then
             echo -e "${PROMPT}${SECTION}Which servo are you using?${INPUT}"
             OPTIONS=()
             option MMX_BOM 'MG996R'
@@ -2440,8 +2505,8 @@ cleanup_old_klippy_modules
 if [ "$UNINSTALL" -eq 0 ]; then
     if [ "${INSTALL}" -eq 1 ]; then
         echo -e "${TITLE}$(get_logo "Happy Hare interactive installer...")"
-        questionaire         # Update in memory parameters from questionaire
-        read_default_config  # Parses template file parameters into memory
+        questionaire              # Update in memory parameters from questionaire
+        read_default_config merge # Parses template file parameters and merges into memory
 
         if [ "${INSTALL_PRINTER_INCLUDES}" == "yes" ]; then
             install_printer_includes
@@ -2485,6 +2550,7 @@ if [ "$UNINSTALL" -eq 0 ]; then
     # Copy config files updating from in memory parmameters or h/w settings
     set +e
     copy_config_files
+    remove_old_config_files
     set -e
 
     # Special upgrades of mmu_hardware.cfg

@@ -517,7 +517,7 @@ read_default_config() {
         parse_file "${SRCDIR}/config/base/mmu_parameters.cfg.rs" ""            "_param_" "$merge"
     else
         # All other selector types
-        parse_file "${SRCDIR}/config/base/mmu_parameters.cfg" ""               "_param_" "checkdup"
+        parse_file "${SRCDIR}/config/base/mmu_parameters.cfg" ""               "_param_" "$merge"
     fi
     parse_file "${SRCDIR}/config/base/mmu_macro_vars.cfg" "variable_|filename" ""        "$merge"
     for file in `cd ${SRCDIR}/config/addons ; ls *.cfg | grep -v "_hw" | grep -v "my_"`; do

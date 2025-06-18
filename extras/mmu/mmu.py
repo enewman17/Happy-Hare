@@ -8271,7 +8271,7 @@ class Mmu:
         purge_volumes = gcmd.get('PURGE_VOLUMES', "")
         num_slicer_tools = gcmd.get_int('NUM_SLICER_TOOLS', self.num_gates, minval=1, maxval=self.num_gates) # Allow slicer to have less tools than MMU gates
         automap_strategy = gcmd.get('AUTOMAP', None)
-        skip_automap = bool(gcmd.get_int('SKIP_AUTOMAP', None, minval=0, maxval=1))
+        skip_automap = gcmd.get_int('SKIP_AUTOMAP', None, minval=0, maxval=1)
 
         quiet = False
         if reset:

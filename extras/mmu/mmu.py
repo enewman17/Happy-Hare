@@ -8282,7 +8282,7 @@ class Mmu:
 
         if skip_automap is not None:
             # This is a "one-print" option that supresses automatic automap
-            self._restore_automap_option(skip_automap)
+            self._restore_automap_option(bool(skip_automap))
 
         if tool >= 0:
             self.slicer_tool_map['tools'][str(tool)] = {'color': color, 'material': material, 'temp': temp, 'name': name, 'in_use': used}

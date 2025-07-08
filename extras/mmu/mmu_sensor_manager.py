@@ -1,8 +1,9 @@
 # Happy Hare MMU Software
-# Manager to centralize mmu_sensor operations
 #
 # Copyright (C) 2022-2025  moggieuk#6538 (discord)
 #                          moggieuk@hotmail.com
+#
+# Goal: Manager to centralize mmu_sensor operations
 #
 # (\_/)
 # ( *,*)
@@ -28,7 +29,7 @@ class MmuSensorManager:
         sensor_names.extend([self.get_gate_sensor_name(self.mmu.SENSOR_PRE_GATE_PREFIX, i) for i in range(self.mmu.num_gates)])
         sensor_names.extend([self.get_gate_sensor_name(self.mmu.SENSOR_GEAR_PREFIX, i) for i in range(self.mmu.num_gates)])
         sensor_names.extend([
-            self.mmu.SENSOR_GATE, 
+            self.mmu.SENSOR_GATE,
             self.mmu.SENSOR_TENSION,
             self.mmu.SENSOR_COMPRESSION
         ])
@@ -38,7 +39,7 @@ class MmuSensorManager:
                 sensor_names.append(self.get_unit_sensor_name(self.mmu.SENSOR_TENSION, i))
                 sensor_names.append(self.get_unit_sensor_name(self.mmu.SENSOR_COMPRESSION, i))
         sensor_names.extend([
-            self.mmu.SENSOR_EXTRUDER_ENTRY, 
+            self.mmu.SENSOR_EXTRUDER_ENTRY,
             self.mmu.SENSOR_TOOLHEAD
         ])
         for name in sensor_names:
@@ -55,7 +56,7 @@ class MmuSensorManager:
         self.endstop_names = []
         self.endstop_names.extend([self.get_gate_sensor_name(self.mmu.SENSOR_GEAR_PREFIX, i) for i in range(self.mmu.num_gates)])
         self.endstop_names.extend([
-            self.mmu.SENSOR_GATE, 
+            self.mmu.SENSOR_GATE,
             self.mmu.SENSOR_TENSION,
             self.mmu.SENSOR_COMPRESSION
         ])
@@ -65,7 +66,7 @@ class MmuSensorManager:
                 self.endstop_names.append(self.get_unit_sensor_name(self.mmu.SENSOR_COMPRESSION, i))
                 self.endstop_names.append(self.get_unit_sensor_name(self.mmu.SENSOR_TENSION, i))
         self.endstop_names.extend([
-            self.mmu.SENSOR_EXTRUDER_ENTRY, 
+            self.mmu.SENSOR_EXTRUDER_ENTRY,
             self.mmu.SENSOR_TOOLHEAD
         ])
         for name in self.endstop_names:
@@ -127,6 +128,7 @@ class MmuSensorManager:
         return result
 
     def has_sensor(self, name):
+# PAUL: Need to handle GEAR_TOUCH
         return self.sensors[name].runout_helper.sensor_enabled if name in self.sensors else False
 
     def has_gate_sensor(self, name, gate):
@@ -153,6 +155,7 @@ class MmuSensorManager:
 
     # Return sensor state or None if not installed
     def check_sensor(self, name):
+# PAUL: Need to handle GEAR_TOUCH
         sensor = self.sensors.get(name, None)
         if sensor is not None and sensor.runout_helper.sensor_enabled:
             detected = bool(sensor.runout_helper.filament_present)

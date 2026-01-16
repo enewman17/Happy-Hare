@@ -2853,8 +2853,9 @@ class Mmu:
 
         if not pre_start_only and self.print_state not in ["printing"]:
             self.log_trace("_on_print_start(->printing)")
-            self.wrap_gcode_command("SET_GCODE_VARIABLE MACRO=%s VARIABLE=min_lifted_z VALUE=0" % self.park_macro) # Sequential printing movement "floor"
-            self.wrap_gcode_command("SET_GCODE_VARIABLE MACRO=%s VARIABLE=next_pos VALUE=False" % self.park_macro)
+            if not self._is_park_override_set():
+                self.wrap_gcode_command("SET_GCODE_VARIABLE MACRO=%s VARIABLE=min_lifted_z VALUE=0" % self._get_park_macro()) # Sequential printing movement "floor"
+                self.wrap_gcode_command("SET_GCODE_VARIABLE MACRO=%s VARIABLE=next_pos VALUE=False" % self._get_park_macro())
             msg = "Happy Hare initialized ready for print"
             if self.filament_pos == self.FILAMENT_POS_LOADED:
                 msg += " (initial tool %s loaded)" % self._selected_tool_string()
@@ -3515,7 +3516,7 @@ class Mmu:
         if new_target_temp > current_target_temp:
             if source in ["mmu default", "gatemap"]:
                 # We use error log channel to avoid heating surprise. This will also cause popup in Klipperscreen
-                self.log_error("Alert: Automatically heating extruder to %s temp (%.1f%sC)" % (source, new_target_temp, UI_DEGREE))
+                self.log_error("Attention: Automatically heating extruder to %s temp (%.1f%sC)" % (source, new_target_temp, UI_DEGREE))
             else:
                 self.log_info("Heating extruder to %s temp (%.1f%sC)" % (source, new_target_temp, UI_DEGREE))
             wait = True # Always wait to warm up
@@ -3619,6 +3620,21 @@ class Mmu:
         if self.test_random_failures and random.randint(0, 10) == 0:
             raise MmuError("Randomized testing failure")
 
+    def _get_park_macro(self):
+        sequence_vars_macro = self.printer.lookup_object("gcode_macro _MMU_SEQUENCE_VARS", None)
+        if sequence_vars_macro:
+            user_park_override = sequence_vars_macro.variables.get('user_park_override', '')
+            if user_park_override and user_park_override.strip():
+                return user_park_override.strip()
+        return self.park_macro
+
+    def _is_park_override_set(self):
+        sequence_vars_macro = self.printer.lookup_object("gcode_macro _MMU_SEQUENCE_VARS", None)
+        if sequence_vars_macro:
+            user_park_override = sequence_vars_macro.variables.get('user_park_override', '')
+            if user_park_override and user_park_override.strip():
+                return True
+        return False
 
 ### STATE GCODE COMMANDS #########################################################
 
@@ -5914,12 +5930,13 @@ class Mmu:
 
     # Tell the sequence macros about where to move to next
     def _set_next_position(self, next_pos):
-        if next_pos:
-            self.wrap_gcode_command("SET_GCODE_VARIABLE MACRO=%s VARIABLE=next_xy VALUE=%s,%s" % (self.park_macro, next_pos[0], next_pos[1]))
-            self.wrap_gcode_command("SET_GCODE_VARIABLE MACRO=%s VARIABLE=next_pos VALUE=True" % self.park_macro)
-        else:
-            self.wrap_gcode_command("SET_GCODE_VARIABLE MACRO=%s VARIABLE=next_pos VALUE=False" % self.park_macro)
-
+        sequence_vars_macro = self.printer.lookup_object("gcode_macro _MMU_SEQUENCE_VARS", None)
+        if sequence_vars_macro and sequence_vars_macro.variables.get('restore_xy_pos', 'last') == 'none':
+            return
+        if not self._is_park_override_set():
+            if next_pos:
+                self.wrap_gcode_command("SET_GCODE_VARIABLE MACRO=%s VARIABLE=next_xy VALUE=%s,%s" % (self._get_park_macro(), next_pos[0], next_pos[1]))
+                self.wrap_gcode_command("SET_GCODE_VARIABLE MACRO=%s VARIABLE=next_pos VALUE=True" % self._get_park_macro())
 
 ### TOOL AND GATE SELECTION ######################################################
 
